@@ -1,0 +1,124 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+import threading
+import time 
+
+# Параметры моделирования
+c = 3e8  # Скорость света в вакууме, м/с
+dx = 0.01  # Шаг по пространству, м
+dt = dx / (2 * c)  # Шаг по времени, с
+size_x = 2.0  # Размер области моделирования, м
+epsilon_r = 5.0  # Относительная диэлектрическая проницаемость
+epsilon_0 = 8.854e-12  # Электрическая постоянная, Ф/м
+mu_0 = 4 * np.pi * 1e-7  # Магнитная постоянная, Гн/м
+
+# Определение сетки
+nx = int(size_x / dx)
+nt = 1000  # Количество временных шагов
+x = np.arange(0, size_x, dx)
+
+# Инициализация полей
+Ez = np.zeros(nx)
+Hy = np.zeros(nx)
+
+# Параметры источника (Вейвлет Рикера)
+f_min = 0.1e9  # Минимальная частота, ГГц
+f_max = 9.0e9  # Максимальная частота, ГГц
+f_center = (f_min + f_max) / 2  # Центральная частота, ГГц
+t_0 = 1 / f_center
+t = np.arange(-4 * t_0, 4 * t_0, dt)
+ricker_wavelet = (1 - 2 * (np.pi * f_center * t) ** 2) * np.exp(-(np.pi * f_center * t) ** 2)
+
+# Позиция источника и датчика
+source_pos = nx // 2
+sensor_pos = nx // 4
+sensor_data = []
+
+# Подготовка к анимации
+fig, ax = plt.subplots()
+line, = ax.plot(x, Ez, 'b-', label='Ez')
+ax.set_xlim(0, size_x)
+ax.set_ylim(-1.1, 1.1)
+ax.set_xlabel('X, м')
+ax.set_ylabel('Ez, В/м')
+ax.set_title('Распространение электромагнитной волны')
+ax.legend()
+ax.plot(x[sensor_pos], 0, 'rx')  
+def update(n):
+    global Ez, Hy
+    # Обновление магнитного поля
+    for i in range(nx - 1):
+        Hy[i] = Hy[i] + (dt / (mu_0 * dx)) * (Ez[i + 1] - Ez[i])
+    # Обновление электрического поля
+    for i in range(1, nx):
+        Ez[i] = Ez[i] + (dt / (epsilon_0 * epsilon_r * dx)) * (Hy[i] - Hy[i - 1])
+    # Включение источника
+    if n < len(ricker_wavelet):
+        Ez[source_pos] += ricker_wavelet[n]
+    # Граничные условия (ABC)
+    Ez[0] = Ez[1]
+    Ez[-1] = Ez[-2]
+    # Регистрация сигнала в датчике
+    sensor_data.append(Ez[sensor_pos])
+    # Обновление данных для анимации
+    line.set_ydata(Ez)
+    return line,
+ani = FuncAnimation(fig, update, frames=nt, blit=True, repeat=False)
+plt.show()
+
+# Ожидание 20 секунд перед запуском следующей части кода
+time.sleep(1)
+
+# Инициализация полей заново для второй части моделирования
+Ez = np.zeros(nx)
+Hy = np.zeros(nx)
+sensor_data = []
+
+# Основной цикл моделирования
+for n in range(nt):
+    # Обновление магнитного поля
+    for i in range(nx - 1):
+        Hy[i] = Hy[i] + (dt / (mu_0 * dx)) * (Ez[i + 1] - Ez[i])
+
+    # Обновление электрического поля
+    for i in range(1, nx):
+        Ez[i] = Ez[i] + (dt / (epsilon_0 * epsilon_r * dx)) * (Hy[i] - Hy[i - 1])
+
+    # Включение источника
+    if n < len(ricker_wavelet):
+        Ez[source_pos] += ricker_wavelet[n]
+
+    # Граничные условия (ABC)
+    Ez[0] = Ez[1]
+    Ez[-1] = Ez[-2]
+
+    # Регистрация сигнала в датчике
+    sensor_data.append(Ez[sensor_pos])
+
+# Нормировка данных
+sensor_data = np.array(sensor_data)
+sensor_data_normalized = sensor_data / np.max(np.abs(sensor_data))
+
+# Амплитудный спектр
+spectrum = np.fft.fft(sensor_data_normalized)
+freq = np.fft.fftfreq(len(sensor_data_normalized), dt)
+spectrum_amplitude = np.abs(spectrum)
+
+# Отображение временного сигнала и его спектра
+plt.figure(figsize=(12, 6))
+
+plt.subplot(2, 1, 1)
+plt.plot(np.arange(nt) * dt, sensor_data_normalized)
+plt.title('Временная зависимость электромагнитной волны')
+plt.xlabel('Время, с')
+plt.ylabel('Амплитуда')
+
+plt.subplot(2, 1, 2)
+plt.plot(freq[:nt // 2] / 1e9, spectrum_amplitude[:nt // 2])
+plt.title('Амплитудный спектр нормированный к максимальному значению')
+plt.xlabel('Частота, ГГц')
+plt.ylabel('Амплитуда')
+
+plt.tight_layout()
+plt.show()
